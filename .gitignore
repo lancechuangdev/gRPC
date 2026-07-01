@@ -1,0 +1,23 @@
+# Binaries
+bin/
+dist/
+
+# Test binary
+*.test
+
+# Coverage
+*.out
+coverage.out
+
+# IDE
+.vscode/
+.idea/
+
+# macOS
+.DS_Store
+
+# Environment
+.env
+
+# Generated protobuf
+*.pb.go
