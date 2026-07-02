@@ -2,8 +2,12 @@ package grpc
 
 import (
 	"context"
+	"errors"
 	"grpc-demo/grpc-demo/proto/orderpb"
 	"grpc-demo/internal/service"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type OrderHandler struct {
@@ -28,6 +32,10 @@ func (h *OrderHandler) CreateOrder(ctx context.Context, req *orderpb.CreateOrder
 
 	order, err := h.orderService.CreateOrder(ctx, input)
 	if err != nil {
+		if errors.Is(err, service.ErrInvalidInput) {
+			return nil, status.Error(codes.InvalidArgument, err.Error())
+		}
+
 		return nil, err
 	}
 

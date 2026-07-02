@@ -1,6 +1,6 @@
-# Go gRPC Order Demo
+# Go gRPC and REST Order Demo
 
-A minimal gRPC client/server application in Go. It exposes a `CreateOrder` RPC, validates the request, and stores the order in memory.
+A minimal Go application that exposes the same order-creation logic through gRPC and REST. Both APIs validate requests through one service and store orders in one in-memory repository.
 
 ## Run
 
@@ -12,31 +12,51 @@ Start the server:
 go run ./cmd/server
 ```
 
-In another terminal, run the client:
+The server starts gRPC on `localhost:50051` and REST on `localhost:8080`.
+
+### gRPC
+
+Run the Go gRPC client:
 
 ```bash
 go run ./cmd/client
 ```
 
-The server listens on `localhost:50051`, and the client submits a sample BTC/USD order.
+### REST
+
+Send the equivalent request as JSON over HTTP:
+
+```bash
+curl -X POST http://localhost:8080/orders \
+  -H "Content-Type: application/json" \
+  -d '{"user_id":"user-1","symbol":"BTCUSD","price":50000,"amount":0.1}'
+```
+
+Example response:
+
+```json
+{"order_id":"order-...","status":"created"}
+```
 
 ## Request flow
 
 ```mermaid
-sequenceDiagram
-    participant C as Go Client
-    participant H as gRPC Handler
-    participant S as Order Service
-    participant R as In-Memory Repository
-
-    C->>H: CreateOrder(user, symbol, price, amount)
-    H->>S: CreateOrder(input)
-    S->>S: Validate input
-    S->>R: Create(order)
-    R-->>S: Order ID and status
-    S-->>H: Created order
-    H-->>C: CreateOrderResponse
+flowchart LR
+    GC[Go gRPC Client] -->|Protobuf / HTTP/2| GH[gRPC Handler]
+    RC[curl or HTTP Client] -->|JSON / HTTP| RH[REST Handler]
+    GH --> S[Order Service<br/>validation]
+    RH --> S
+    S --> R[In-Memory Repository]
 ```
+
+## gRPC vs REST
+
+| gRPC | REST |
+| --- | --- |
+| Contract defined in `order.proto` | Contract expressed through HTTP and JSON |
+| Binary Protobuf messages over HTTP/2 | Human-readable JSON over HTTP |
+| Generated, strongly typed Go client | Callable with any HTTP client, such as `curl` |
+| Errors use gRPC status codes | Errors use HTTP status codes |
 
 ## Project structure
 
@@ -44,6 +64,7 @@ sequenceDiagram
 cmd/server/                 gRPC server and graceful shutdown
 cmd/client/                 example client
 internal/transport/gRPC/    RPC handler
+internal/transport/rest/    HTTP/JSON handler
 internal/service/           validation and business logic
 internal/repository/        thread-safe in-memory storage
 proto/order.proto           service and message definitions

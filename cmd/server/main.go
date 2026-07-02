@@ -2,14 +2,18 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"grpc-demo/grpc-demo/proto/orderpb"
 	"grpc-demo/internal/repository"
 	"grpc-demo/internal/service"
 	transportgrpc "grpc-demo/internal/transport/gRPC"
+	"grpc-demo/internal/transport/rest"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -25,23 +29,37 @@ func main() {
 
 	orderRepo := repository.NewOrderRepository()
 	orderService := service.NewOrderService(orderRepo)
-	orderHandler := transportgrpc.NewOrderHandler(orderService)
+	grpcHandler := transportgrpc.NewOrderHandler(orderService)
+	restHandler := rest.NewOrderHandler(orderService)
 
-	gprcSrv := grpc.NewServer()
-	orderpb.RegisterOrderServiceServer(gprcSrv, orderHandler)
+	grpcSrv := grpc.NewServer()
+	orderpb.RegisterOrderServiceServer(grpcSrv, grpcHandler)
+
+	restSrv := &http.Server{
+		Addr:    ":8080",
+		Handler: restHandler.Routes(),
+	}
 
 	go func() {
 		fmt.Println("gRPC server listening on :50051")
 
-		if err := gprcSrv.Serve(listener); err != nil {
+		if err := grpcSrv.Serve(listener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 			fmt.Println("Failed to serve:", err)
 		}
 	}()
 
-	waitForShutdown(gprcSrv)
+	go func() {
+		fmt.Println("REST server listening on :8080")
+
+		if err := restSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			fmt.Println("Failed to serve REST API:", err)
+		}
+	}()
+
+	waitForShutdown(grpcSrv, restSrv)
 }
 
-func waitForShutdown(grpcSrv *grpc.Server) {
+func waitForShutdown(grpcSrv *grpc.Server, restSrv *http.Server) {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
@@ -51,20 +69,35 @@ func waitForShutdown(grpcSrv *grpc.Server) {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	grpcStopped := make(chan struct{})
+	serversStopped := make(chan struct{})
 
 	go func() {
 		fmt.Println("starting graceful shutdown")
-		grpcSrv.GracefulStop()
-		close(grpcStopped)
+
+		var wg sync.WaitGroup
+		wg.Add(2)
+
+		go func() {
+			defer wg.Done()
+			grpcSrv.GracefulStop()
+		}()
+
+		go func() {
+			defer wg.Done()
+			_ = restSrv.Shutdown(shutdownCtx)
+		}()
+
+		wg.Wait()
+		close(serversStopped)
 	}()
 
 	select {
-	case <-grpcStopped:
-		fmt.Println("gRPC server gracefully stopped")
+	case <-serversStopped:
+		fmt.Println("gRPC and REST servers gracefully stopped")
 
 	case <-shutdownCtx.Done():
 		fmt.Println("graceful shutdown timeout, forcing stop")
 		grpcSrv.Stop()
+		_ = restSrv.Close()
 	}
 }

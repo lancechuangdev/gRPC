@@ -6,6 +6,8 @@ import (
 	"grpc-demo/internal/repository"
 )
 
+var ErrInvalidInput = errors.New("invalid input")
+
 type CreateOrderInput struct {
 	UserID string
 	Symbol string
@@ -25,7 +27,7 @@ func NewOrderService(repo *repository.OrderRepository) *OrderService {
 
 func (s *OrderService) CreateOrder(ctx context.Context, input CreateOrderInput) (repository.Order, error) {
 	if input.UserID == "" || input.Symbol == "" || input.Price <= 0 || input.Amount <= 0 {
-		return repository.Order{}, errors.New("invalid input")
+		return repository.Order{}, ErrInvalidInput
 	}
 
 	order := repository.Order{
